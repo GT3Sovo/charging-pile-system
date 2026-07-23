@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>客户服务终端 | 智能充电桩调度计费系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body class="relative min-h-screen overflow-x-hidden">
+
+    <div class="absolute -top-40 -left-40 w-96 h-96 bg-emerald-200 rounded-full filter blur-3xl opacity-30 blob-1 pointer-events-none"></div>
+    <div class="absolute top-1/2 -right-40 w-[450px] h-[450px] bg-amber-100 rounded-full filter blur-3xl opacity-20 blob-2 pointer-events-none"></div>
+    <div class="absolute -bottom-20 left-1/3 w-80 h-80 bg-blue-100 rounded-full filter blur-3xl opacity-25 blob-1 pointer-events-none"></div>
+
+    <div id="app" class="relative z-10 max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8" v-cloak>
+
+        <header class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 border-b border-gray-200/50 mb-6">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-lg shadow-emerald-600/20">
+                    <i data-lucide="car" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-slate-900">客户服务终端</h1>
+                    <p class="text-xs text-slate-500 font-medium">充电申请 · 订单变更 · 实时桩况查询</p>
+                </div>
+            </div>
+
+            <div class="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
+                <a href="index.html" class="glass px-4 py-2 rounded-2xl flex items-center space-x-1.5 shadow-sm border border-white text-xs font-semibold text-slate-700 hover:bg-white active:scale-95 transition-all">
+                    <i data-lucide="monitor" class="w-4 h-4 text-slate-600"></i>
+                    <span>管理员监控</span>
+                </a>
+                <div class="glass px-4 py-2 rounded-2xl flex items-center space-x-3 shadow-sm border border-white">
+                    <div class="flex items-center space-x-1.5">
+                        <i data-lucide="clock" class="w-4 h-4 text-slate-400"></i>
+                        <span class="text-base font-bold font-mono tracking-wider text-slate-800">{{ simTime }}</span>
+                    </div>
+                    <div class="h-3 w-[1px] bg-slate-200"></div>
+                    <span :class="priceStyleClass" class="text-xs px-2.5 py-0.5 rounded-full font-semibold transition-all">
+                        {{ pricePeriodName }} (电价 {{ currentPrice }}元/度)
+                    </span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Account and vehicle profile center; guest mode remains available for G12 demonstrations. -->
+        <section class="glass p-5 rounded-3xl shadow-sm border border-white mb-6 overflow-hidden relative">
+            <div class="absolute -right-16 -top-20 w-52 h-52 rounded-full bg-emerald-100/60 blur-3xl pointer-events-none"></div>
+            <div v-if="!currentUser" class="relative grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-5 items-center">
+                <div>
+                    <p class="text-[10px] font-bold tracking-[0.22em] text-emerald-600 uppercase mb-1">Account Access</p>
+                    <h2 class="text-base font-bold text-slate-900">登录后管理本人车辆，未登录仍可控制所有车辆</h2>
+                    <p class="text-xs text-slate-500 mt-1">演示账号：<span class="font-mono">admin / admin123</span>，普通车主可直接注册。</p>
+                </div>
+                <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                    <div class="flex bg-slate-100 rounded-xl p-1">
+                        <button @click="authMode = 'login'" :class="authMode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" class="px-3 py-1.5 rounded-lg text-xs font-bold">登录</button>
+                        <button @click="authMode = 'register'" :class="authMode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" class="px-3 py-1.5 rounded-lg text-xs font-bold">注册</button>
+                    </div>
+                    <input v-model.trim="authUsername" placeholder="用户名" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+                    <input v-model="authPassword" type="password" placeholder="密码（至少6位）" @keyup.enter="submitAuth" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+                    <button @click="submitAuth" class="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-95 transition-all">{{ authMode === 'login' ? '进入账户' : '创建账户' }}</button>
+                </div>
+            </div>
+            <div v-else class="relative grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-5 items-center">
+                <div class="flex items-center gap-3 lg:pr-5 lg:border-r border-slate-200">
+                    <div class="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center"><i data-lucide="badge-check" class="w-5 h-5"></i></div>
+                    <div>
+                        <p class="font-bold text-sm text-slate-900">{{ currentUser.username }}</p>
+                        <p class="text-[10px] text-slate-500">{{ currentUser.role }} · 已绑定 {{ accountVehicles.length }} 辆车</p>
+                    </div>
+                    <button @click="logout" class="ml-2 text-[10px] font-bold text-slate-400 hover:text-red-500">退出</button>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    <input v-model.trim="vehicleProfile.vehicleId" placeholder="车牌号" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold">
+                    <input v-model.trim="vehicleProfile.vehicleType" placeholder="车辆型号" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold">
+                    <input v-model.number="vehicleProfile.batteryCapacity" type="number" min="1" placeholder="电池容量" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold font-mono">
+                    <input v-model.number="vehicleProfile.currentCapacity" type="number" min="0" placeholder="当前电量" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold font-mono">
+                    <button @click="addVehicleProfile" class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 active:scale-95 transition-all">绑定车辆</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 充电桩实时状态（只读） -->
+        <section class="glass p-5 rounded-3xl shadow-sm border border-white mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-sm font-bold text-slate-800 flex items-center space-x-1.5">
+                    <i data-lucide="battery-charging" class="w-4 h-4 text-emerald-600"></i>
+                    <span>充电桩实时状态</span>
+                </h2>
+                <p class="text-[10px] text-slate-400 font-semibold">等候区共 {{ waitingArea.length }}/10 辆（快充 {{ getWaitingAreaModeCount('FAST') }} · 慢充 {{ getWaitingAreaModeCount('TRICKLE') }}）· 每桩最多排队 3 辆</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                <div v-for="pile in piles" :key="pile.id" :class="pile.state === 'FAULT' ? 'border-red-200 bg-red-50/40' : pile.state === 'OFFLINE' ? 'border-slate-300 bg-slate-50/60' : 'border-white bg-white/70'" class="glass p-3.5 rounded-2xl border flex flex-col">
+                    <div class="flex items-start justify-between pb-2 border-b border-slate-100">
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-900 flex items-center space-x-1">
+                                <span :class="pile.type === 'FAST' ? 'text-amber-500' : 'text-emerald-500'">
+                                    <i :data-lucide="pile.type === 'FAST' ? 'zap' : 'leaf'" class="w-3.5 h-3.5 fill-current"></i>
+                                </span>
+                                <span>{{ pile.id }}</span>
+                            </h4>
+                            <p class="text-[9px] font-semibold text-slate-400">{{ pile.type === 'FAST' ? '快充 30kW' : '慢充 10kW' }}</p>
+                        </div>
+                        <span :class="getPileStateBadgeClass(pile.state)" class="text-[9px] px-2 py-0.5 rounded-lg font-bold uppercase">
+                            {{ getPileStateLabel(pile.state) }}
+                        </span>
+                    </div>
+                    <div class="flex-1 py-2 flex flex-col gap-1.5">
+                        <div v-for="(slot, sIdx) in getPileQueueSlots(pile.id)" :key="sIdx" class="w-full">
+                            <div v-if="slot" :class="[
+                                    sIdx === 0 ? 'bg-white border border-slate-100 rounded-xl p-2' : 'bg-slate-50 border border-slate-100 p-1.5 rounded-lg',
+                                    sIdx === 0 && pile.state === 'RUNNING' ? 'active-charging-pulse' : ''
+                                 ]">
+                                <div v-if="sIdx === 0" class="space-y-1">
+                                    <div class="flex items-center justify-between">
+                                        <span class="font-bold text-[10px] text-slate-800">{{ slot.vehicleId }}</span>
+                                        <span class="text-[8px] bg-amber-50 text-amber-700 px-1 py-0.5 rounded font-mono">{{ slot.queueNum }}</span>
+                                    </div>
+                                    <div class="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                                        <div :style="{ width: ((getVehicleChargedQ(slot.vehicleId) / slot.requestedAmount) * 100) + '%' }" :class="pile.type === 'FAST' ? 'bg-amber-500' : 'bg-emerald-500'" class="h-full rounded-full transition-all duration-300"></div>
+                                    </div>
+                                    <div class="flex justify-between text-[8px] text-slate-400 font-mono">
+                                        <span>{{ formatNum(getVehicleChargedQ(slot.vehicleId)) }}/{{ formatNum(slot.requestedAmount) }}度</span>
+                                        <span>￥{{ formatNum(getVehicleCurrentCost(slot.vehicleId)) }}</span>
+                                    </div>
+                                </div>
+                                <div v-else class="flex items-center justify-between text-[9px]">
+                                    <span class="font-bold text-slate-600">{{ slot.vehicleId }}</span>
+                                    <span class="text-[8px] bg-slate-100 text-slate-500 px-1 rounded font-mono">{{ slot.queueNum }}</span>
+                                </div>
+                            </div>
+                            <div v-else class="w-full h-7 border border-dashed border-slate-200 rounded-lg bg-slate-50/40 flex items-center justify-center text-[9px] text-slate-300">
+                                空闲
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <div class="glass p-5 rounded-3xl shadow-sm border border-white flex flex-col">
+                <h3 class="text-sm font-bold text-slate-800 mb-3 flex items-center space-x-1.5">
+                    <i data-lucide="user" class="w-4 h-4 text-slate-500"></i>
+                    <span>快速车主身份切换</span>
+                </h3>
+                <div class="grid grid-cols-3 gap-2 overflow-y-auto max-h-[380px] pr-1">
+                    <button v-for="carId in vehicleIds" :key="carId" @click="selectClientVehicle(carId)" :class="selectedVehicleId === carId ? 'bg-slate-900 text-white font-bold border-slate-900 shadow-md' : 'bg-white border-slate-200 text-slate-700 font-semibold hover:bg-slate-50'" class="py-2.5 rounded-xl border text-xs text-center transition-all active:scale-95">
+                        {{ carId }}
+                    </button>
+                    <p v-if="vehicleIds.length === 0" class="col-span-3 px-3 py-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">尚未绑定车辆，请先在上方建立车辆档案。</p>
+                </div>
+            </div>
+
+            <div class="col-span-2 space-y-6">
+
+                <div class="glass p-5 rounded-3xl shadow-sm border border-white relative overflow-hidden">
+                    <div v-if="selectedVehicle && selectedVehicle.state === 'CHARGING'" class="absolute -top-10 -right-10 w-40 h-40 bg-amber-100 rounded-full filter blur-2xl opacity-40 pointer-events-none animate-pulse"></div>
+
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div class="flex items-center space-x-3.5">
+                            <div :class="selectedVehicleModeClass" class="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-md">
+                                <i :data-lucide="selectedVehicleIcon" class="w-6 h-6 fill-current"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-bold text-slate-800 flex items-center space-x-2">
+                                    <span>车牌号: {{ selectedVehicleId }}</span>
+                                    <span :class="selectedVehicleStateClass" class="text-[10px] px-2 py-0.5 rounded-lg font-bold uppercase tracking-wider">
+                                        {{ selectedVehicleStateName }}
+                                    </span>
+                                </h3>
+                            </div>
+                        </div>
+                        <div v-if="selectedVehicle && selectedVehicle.queueNum" class="text-right">
+                            <span class="text-[10px] font-bold text-slate-400 block uppercase">当前排队号码</span>
+                            <span class="text-xl font-extrabold font-mono tracking-wider text-indigo-600">{{ selectedVehicle.queueNum }}</span>
+                        </div>
+                    </div>
+
+                    <div v-if="selectedVehicle && selectedVehicle.state === 'CHARGING'" class="mt-5 pt-4 border-t border-slate-100/50 space-y-2">
+                        <div class="flex items-center justify-between text-xs font-mono font-semibold text-slate-700">
+                            <span>⚡ 充电中</span>
+                            <span>{{ formatNum(getVehicleChargedQ(selectedVehicleId)) }} / {{ formatNum(selectedVehicle.requestedAmount) }} 度 ({{ Math.round((getVehicleChargedQ(selectedVehicleId) / selectedVehicle.requestedAmount) * 100) }}%)</span>
+                        </div>
+                        <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div :style="{ width: ((getVehicleChargedQ(selectedVehicleId) / selectedVehicle.requestedAmount) * 100) + '%' }" :class="selectedVehicle.chargeMode === 'FAST' ? 'bg-amber-500' : 'bg-emerald-500'" class="h-full rounded-full transition-all duration-300"></div>
+                        </div>
+                        <div class="flex justify-between items-center text-xs text-slate-500 pt-1">
+                            <span>启动时间: {{ formatTimeFromDateTime(selectedVehicle.requestTime) }}</span>
+                            <span class="font-mono text-slate-800">当前累计消费: <strong class="text-sm text-indigo-600 font-extrabold">￥{{ formatNum(getVehicleCurrentCost(selectedVehicleId)) }}</strong></span>
+                        </div>
+                    </div>
+
+                    <div v-else-if="selectedVehicle && selectedVehicle.state === 'WAITING_IN_AREA'" class="mt-4 p-3 bg-indigo-50/50 rounded-2xl text-xs font-semibold text-indigo-700 flex items-center space-x-2">
+                        <i data-lucide="info" class="w-4 h-4 text-indigo-500 flex-shrink-0"></i>
+                        <span>您目前正处于主等候区{{ getChargeModeLabel(selectedVehicle.chargeMode) }}模式（{{ getChargeModeLabel(selectedVehicle.chargeMode) }}）的第 {{ getWaitingAreaModePosition(selectedVehicleId) }} 位，该模式当前共 {{ getWaitingAreaModeCount(selectedVehicle.chargeMode) }} 辆等待，暂未分配物理充电桩。</span>
+                    </div>
+                    <div v-else-if="selectedVehicle && selectedVehicle.state === 'QUEUING_IN_PILE'" class="mt-4 p-3 bg-amber-50/50 rounded-2xl text-xs font-semibold text-amber-700 flex items-center space-x-2">
+                        <i data-lucide="info" class="w-4 h-4 text-amber-500 flex-shrink-0"></i>
+                        <span>已分配充电桩「{{ selectedVehicle.currentPile ? selectedVehicle.currentPile.id : '' }}」排队等待中，您前面还有 {{ getPileAheadCount() }} 辆车。</span>
+                    </div>
+                    <div v-else-if="selectedVehicle && selectedVehicle.state === 'FINISHED'" class="mt-4 p-3 bg-emerald-50 text-emerald-800 rounded-2xl text-xs font-semibold flex items-center space-x-2">
+                        <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500 flex-shrink-0"></i>
+                        <span>本次充电已顺利结束结算。感谢使用！详单和账单已打印在下方。</span>
+                    </div>
+                    <div v-else-if="selectedVehicle && selectedVehicle.state === 'CANCELLED'" class="mt-4 p-3 bg-slate-100 text-slate-600 rounded-2xl text-xs font-semibold flex items-center space-x-2">
+                        <i data-lucide="x-circle" class="w-4 h-4 text-slate-400 flex-shrink-0"></i>
+                        <span>本次充电申请已被车主中途取消/退单。</span>
+                    </div>
+                    <div v-else class="mt-4 p-6 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                        <i data-lucide="help-circle" class="w-8 h-8 stroke-1 text-slate-300 mb-1 mx-auto"></i>
+                        <span class="text-xs block">当前车辆在系统内无激活充电会话。请在下方提交申请。</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass p-5 rounded-3xl shadow-sm border border-white">
+                        <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">一、 提交充电申请</h4>
+                        <div v-if="selectedVehicleHasActiveOrder" class="space-y-3">
+                            <div class="px-3 py-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-800">
+                                车辆 <strong class="font-mono">{{ selectedVehicleId }}</strong> 已有进行中的充电订单（{{ selectedVehicleStateName }}），无法重复提交。请在右侧「变更与退单中心」修改或取消。
+                            </div>
+                        </div>
+                        <div v-else class="space-y-3.5">
+                            <div class="px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-600">
+                                当前车主身份：<strong class="text-slate-900 font-bold font-mono">{{ selectedVehicleId }}</strong>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 block mb-1.5 uppercase">充电类型</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button @click="formMode = 'FAST'" :class="formMode === 'FAST' ? 'bg-amber-500 text-white font-bold border-amber-500 shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold'" class="py-2 rounded-xl border text-xs transition-all active:scale-95 flex items-center justify-center space-x-1">
+                                        <i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>
+                                        <span>快充 (30kW)</span>
+                                    </button>
+                                    <button @click="formMode = 'TRICKLE'" :class="formMode === 'TRICKLE' ? 'bg-emerald-500 text-white font-bold border-emerald-500 shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold'" class="py-2 rounded-xl border text-xs transition-all active:scale-95 flex items-center justify-center space-x-1">
+                                        <i data-lucide="leaf" class="w-3.5 h-3.5 fill-current"></i>
+                                        <span>慢充 (10kW)</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 block mb-1.5 uppercase">充电度数 (度)</label>
+                                <input type="number" v-model.number="formAmount" placeholder="输入 5 到 100" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none font-bold font-mono" />
+                            </div>
+                            <button @click="submitChargeRequest" class="w-full py-2.5 mt-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 active:scale-95 transition-all shadow-md shadow-slate-900/10 flex items-center justify-center space-x-1.5">
+                                <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                                <span>提交排队申请</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="glass p-5 rounded-3xl shadow-sm border border-white flex flex-col justify-between">
+                        <div class="space-y-4">
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">二、 变更与退单中心</h4>
+                            <div v-if="selectedVehicle && (selectedVehicle.state === 'WAITING_IN_AREA' || selectedVehicle.state === 'QUEUING_IN_PILE' || selectedVehicle.state === 'CHARGING')" class="space-y-3.5">
+                                <div v-if="selectedVehicle.state === 'WAITING_IN_AREA'" class="p-3.5 bg-indigo-50/60 border border-indigo-100 rounded-2xl space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <label class="text-[10px] font-bold text-indigo-700 uppercase">变更充电类型</label>
+                                        <span :class="selectedVehicle.chargeMode === 'FAST' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'" class="text-[10px] px-2 py-0.5 rounded-lg font-bold">
+                                            当前：{{ selectedVehicle.chargeMode === 'FAST' ? '快充' : '慢充' }} · {{ selectedVehicle.queueNum }}
+                                        </span>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <button type="button" @click="submitChangeMode('FAST')" :disabled="selectedVehicle.chargeMode === 'FAST'" :class="selectedVehicle.chargeMode === 'FAST' ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-100 active:scale-95'" class="py-2.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1">
+                                            <span>⚡</span><span>变更为快充</span>
+                                        </button>
+                                        <button type="button" @click="submitChangeMode('TRICKLE')" :disabled="selectedVehicle.chargeMode === 'TRICKLE'" :class="selectedVehicle.chargeMode === 'TRICKLE' ? 'opacity-40 cursor-not-allowed' : 'hover:bg-emerald-100 active:scale-95'" class="py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1">
+                                            <span>🐢</span><span>变更为慢充</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-slate-400 block mb-1.5 uppercase">修改目标度数 (度)</label>
+                                    <p v-if="selectedVehicleHasActiveOrder" class="text-[10px] text-slate-500 mb-1.5">不得小于已充电量（当前已充 {{ formatNum(getVehicleChargedQ(selectedVehicleId)) }} 度）</p>
+                                    <div class="flex space-x-2">
+                                        <input type="number" v-model.number="changeAmount" :min="selectedVehicleHasActiveOrder ? getVehicleChargedQ(selectedVehicleId) : 0" placeholder="输入度数" class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-slate-900 focus:outline-none font-mono font-bold" />
+                                        <button @click="submitChangeAmount" class="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 active:scale-95 transition-all">
+                                            修改电量
+                                        </button>
+                                    </div>
+                                </div>
+                                <p v-if="selectedVehicle.state === 'QUEUING_IN_PILE' || selectedVehicle.state === 'CHARGING'" class="text-[10px] text-slate-400 leading-relaxed">已分配充电桩后不可变更充电类型，仅可修改目标度数。</p>
+                            </div>
+                            <div v-else class="text-xs text-slate-400 py-2">
+                                仅在当前车辆具有激活会话（排队、充电等）时允许进行变更操作。
+                            </div>
+                        </div>
+                        <div v-if="selectedVehicle && (selectedVehicle.state === 'WAITING_IN_AREA' || selectedVehicle.state === 'QUEUING_IN_PILE' || selectedVehicle.state === 'CHARGING')" class="mt-4">
+                            <button @click="cancelSelectedVehicle" class="w-full py-2.5 rounded-xl bg-red-50 text-red-600 border border-red-100 font-extrabold text-xs hover:bg-red-100 active:scale-95 transition-all flex items-center justify-center space-x-1.5">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                <span>取消当前排队并退单</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="selectedVehicleDetails.length > 0 || selectedVehicleBill" class="glass p-5 rounded-3xl shadow-sm border border-white">
+                    <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                        <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">三、 个人消费对账单</h4>
+                        <span class="text-[9px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold">车辆专属详单</span>
+                    </div>
+                    <div class="space-y-4">
+                        <div v-for="dl in selectedVehicleDetails" :key="dl.detailNo" class="border border-slate-100 rounded-2xl bg-white p-4 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-mono font-bold text-indigo-600">{{ dl.detailNo }}</span>
+                                <span class="text-[10px] text-slate-400 font-mono">{{ formatTimeFromDateTime(dl.createdAt) }}</span>
+                            </div>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                <div>
+                                    <span class="text-slate-400 block text-[9px] uppercase font-bold">使用的桩</span>
+                                    <span class="font-bold text-slate-700">{{ dl.pile.id }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-400 block text-[9px] uppercase font-bold">充电电量</span>
+                                    <span class="font-bold text-slate-800 font-mono">{{ formatNum(dl.chargedAmount) }} 度</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-400 block text-[9px] uppercase font-bold">充电时长</span>
+                                    <span class="font-bold text-slate-700 font-mono">{{ dl.chargeDuration }} 秒</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-400 block text-[9px] uppercase font-bold">时间时段</span>
+                                    <span class="font-bold text-slate-700 font-mono text-[10px]">{{ formatTimeFromDateTime(dl.startTime) }} ~ {{ formatTimeFromDateTime(dl.endTime) }}</span>
+                                </div>
+                            </div>
+                            <div class="pt-2 border-t border-dashed border-slate-100 flex items-center justify-between text-xs font-semibold">
+                                <div class="space-x-3 text-[10px] text-slate-400 font-medium">
+                                    <span>电费: ￥{{ formatNum(dl.chargeCost) }}</span>
+                                    <span>服务费: ￥{{ formatNum(dl.serviceCost) }}</span>
+                                </div>
+                                <span class="text-slate-800">总费用: <strong class="text-sm font-extrabold text-slate-900 font-mono">￥{{ formatNum(dl.totalCost) }}</strong></span>
+                            </div>
+                        </div>
+                        <div v-if="selectedVehicleBill" class="p-4 bg-slate-950 text-slate-100 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-lg">
+                            <div class="space-y-0.5">
+                                <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">累计对账总单</span>
+                                <span class="text-xs font-bold">账单号: <span class="font-mono text-indigo-400">{{ selectedVehicleBill.billNo }}</span></span>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-4 text-xs font-mono text-slate-300">
+                                <div>累计电量: <strong class="text-white">{{ formatNum(selectedVehicleBill.chargedAmount) }}度</strong></div>
+                                <div>累计电费: <strong class="text-white">￥{{ formatNum(selectedVehicleBill.chargeCost) }}</strong></div>
+                                <div>累计服务费: <strong class="text-white">￥{{ formatNum(selectedVehicleBill.serviceCost) }}</strong></div>
+                                <div class="h-4 w-[1px] bg-slate-800 hidden sm:block"></div>
+                                <div class="text-sm text-amber-400 font-extrabold font-sans">合计总额: ￥{{ formatNum(selectedVehicleBill.totalCost) }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <footer class="mt-12 pt-6 border-t border-gray-200/50 text-center pb-8">
+            <p class="text-xs text-slate-400 font-medium">© 2026 软件工程期末项目小组G12 | 智能充电桩调度计费系统</p>
+        </footer>
+
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="js/app-shared.js"></script>
+    <script>
+        const { createApp } = Vue;
+        createApp({ setup: () => smartPileSetup({ page: 'client' }) }).mount('#app');
+    </script>
+</body>
+</html>

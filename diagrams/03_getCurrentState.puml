@@ -1,0 +1,50 @@
+@startuml getCurrentState
+title 顺序图 - getCurrentState() 系统状态快照
+
+actor 用户 as User
+participant "边界层\nApiController" as API
+participant "控制层\nSimulationService" as Sim
+participant "控制层\nBillingEngine" as BillEng
+participant "仓库层\nChargingPileRepository" as CPR
+participant "仓库层\nQueueRecordRepository" as QRR
+participant "仓库层\nVehicleRepository" as VR
+participant "仓库层\nBillRepository" as BR
+participant "仓库层\nDetailListRepository" as DLR
+participant "仓库层\nRechargeRecordRepository" as RRR
+
+User -> API : GET /api/state
+
+API -> Sim : getCurrentTimeStr()
+Sim --> API : "HH:mm:ss"
+API -> Sim : getCurrentSec()
+Sim --> API : int (秒)
+API -> Sim : getEventTemplates()
+Sim --> API : List<SimEventTemplate>
+
+API -> CPR : findAll()
+CPR --> API : List<ChargingPile>
+
+API -> QRR : findAll()
+QRR --> API : List<QueueRecord>
+API -> API : 按 queueType 分类组装\nwaitingArea / faultQueue / pileQueues
+
+API -> VR : findAll()
+VR --> API : List<Vehicle>
+
+API -> BR : findAll()
+BR --> API : List<Bill>
+
+API -> DLR : findAll()
+DLR --> API : List<DetailList>
+
+loop 每个车辆 (buildVehicleProgressMap)
+    API -> RRR : findByVehicleId(vehicleId)
+    RRR --> API : List<RechargeRecord>
+    API -> BillEng : calculate(startTime, simNow, chargedAmount)
+    BillEng --> API : BillingResult (totalCost)
+end
+
+API -> API : 组装 Map<String, Object>\n(time, piles, waitingArea, faultQueue,\n pileQueues, vehicles, bills, details,\n events, vehicleProgress, ...)
+
+API --> User : 200 OK + 系统状态 JSON
+@enduml

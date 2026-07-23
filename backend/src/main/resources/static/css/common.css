@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap');
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    background-color: #f5f5f7;
+    color: #1d1d1f;
+}
+
+/* Apple frosted glass effects */
+.glass {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.dark-glass {
+    background: rgba(29, 29, 31, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Elegant custom scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* Pulse and flow animations */
+@keyframes float-blobs {
+    0% { transform: translate(0px, 0px) scale(1); }
+    33% { transform: translate(30px, -50px) scale(1.1); }
+    66% { transform: translate(-20px, 20px) scale(0.95); }
+    100% { transform: translate(0px, 0px) scale(1); }
+}
+
+.blob-1 {
+    animation: float-blobs 12s infinite ease-in-out;
+}
+.blob-2 {
+    animation: float-blobs 16s infinite ease-in-out 2s;
+}
+
+/* Smooth scale-on-hover */
+.apple-hover {
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.apple-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.06);
+}
+
+.active-charging-pulse {
+    position: relative;
+}
+.active-charging-pulse::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 2px solid #34c759;
+    border-radius: inherit;
+    animation: charge-pulse-anim 2s infinite cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+}
+
+@keyframes charge-pulse-anim {
+    0% { transform: scale(0.98); opacity: 0.8; }
+    100% { transform: scale(1.05); opacity: 0; }
+}
+    </style>

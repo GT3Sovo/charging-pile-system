@@ -1,0 +1,65 @@
+@startuml cancelCharge
+title 顺序图 - cancelOrEndCharge(vehicleId)
+
+actor 用户 as User
+participant "边界层\nApiController" as API
+participant "控制层\nSimulationService" as Sim
+participant "控制层\nSchedulingEngine" as Sched
+participant "控制层\nBillingEngine" as BillEng
+participant "仓库层\nVehicleRepository" as VR
+participant "仓库层\nQueueRecordRepository" as QRR
+participant "仓库层\nRechargeRecordRepository" as RRR
+participant "仓库层\nDetailListRepository" as DLR
+participant "仓库层\nBillRepository" as BR
+
+User -> API : POST /api/charge/cancel\n(vehicleId)
+API -> Sim : ensureInitialized()
+API -> Sim : lockMode()
+API -> Sched : cancelOrEndCharge(vehicleId, time)
+
+Sched -> VR : findById(vehicleId)
+VR --> Sched : Optional<Vehicle>
+
+alt 车辆已结束/已取消
+    Sched --> API : Vehicle (原样返回)
+else 车辆活跃中
+    Sched -> Sched : 检查 vehicle.getState() 与 getCurrentPile()
+
+    alt state == WAITING_IN_AREA (等候区中)
+        Sched -> QRR : deleteByVehicleId(vehicleId)
+        Sched -> Sched : vehicle.setState(CANCELLED)
+        Sched -> VR : save(vehicle)
+        Sched -> QRR : reorderWaitingAreaQueue()
+
+    else state == CHARGING 或 QUEUING_IN_PILE (桩上/排队中)
+        Sched -> QRR : findFirstByVehicle_Id(vehicleId)
+        QRR --> Sched : Optional<QueueRecord>
+
+        alt 正在充电 (state == CHARGING)
+            Sched -> Sched : stopChargingAndGenerateDetail(vehicle, pile, time)
+            Sched -> RRR : findByVehicleId(vehicleId)
+            RRR --> Sched : List<RechargeRecord>
+            Sched -> Sched : 找到未结束的 RechargeRecord\n设置 endTime
+
+            Sched -> BillEng : calculate(startTime, endTime, chargedAmount)
+            BillEng --> Sched : BillingResult (峰/平/谷电费 + 服务费)
+
+            Sched -> Sched : new DetailList(detailNo, ...)\nnew Bill(billNo, ...) 或 累加已有Bill
+            Sched -> DLR : save(detail)
+            DLR --> Sched : DetailList
+            Sched -> BR : save(bill)
+            BR --> Sched : Bill
+        end
+
+        Sched -> QRR : deleteByVehicleId(vehicleId)
+        Sched -> Sched : vehicle.setState(FINISHED)\nvehicle.setCurrentPile(null)
+        Sched -> VR : save(vehicle)
+        Sched -> Sched : reorderPileQueue(pileId)
+        Sched -> Sched : startNextVehicleInPile(pile, time)
+        Sched -> Sched : tryDispatch(mode, time)
+    end
+
+    Sched --> API : Vehicle (更新后)
+end
+API --> User : 200 OK + JSON
+@enduml

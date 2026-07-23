@@ -1,0 +1,62 @@
+@startuml requestCharge
+title 顺序图 - requestCharge(vehicleId, userId, vehicleType, ..., mode, requestedAmount)
+
+actor 用户 as User
+participant "边界层\nApiController" as API
+participant "控制层\nSimulationService" as Sim
+participant "控制层\nSchedulingEngine" as Sched
+participant "仓库层\nUserRepository" as UR
+participant "仓库层\nVehicleRepository" as VR
+participant "仓库层\nQueueRecordRepository" as QRR
+participant "仓库层\nChargingPileRepository" as CPR
+
+User -> API : POST /api/charge/request\n(ChargeRequestDto)
+API -> Sim : ensureInitialized()
+API -> Sim : lockMode()
+API -> Sched : requestCharge(vehicleId, userId, vehicleType,\nbatteryCapacity, currentCapacity, mode, requestedAmount, time)
+
+Sched -> UR : findById(userId)
+UR --> Sched : Optional<User>
+
+Sched -> QRR : findByQueueTypeOrderByPositionAsc("WAITING_AREA")
+QRR --> Sched : List<QueueRecord>
+alt 等候区已满(N辆)
+    Sched --> API : IllegalStateException
+    API --> User : 400 等候区已满
+else 等候区有空位
+    Sched -> Sched : generateNextQueueNum(mode)\n返回 "F1" / "T1" 等
+
+    Sched -> VR : findById(vehicleId)
+    VR --> Sched : Optional<Vehicle>
+    alt 车辆已存在 + 状态活跃
+        Sched --> API : IllegalStateException "已有活跃请求"
+    else 车辆不存在或已结束
+        alt 车辆不存在
+            Sched -> Sched : new Vehicle(...)\nstate = WAITING_IN_AREA
+        else 车辆存在
+            Sched -> Sched : vehicle.setRequestedAmount(...)\nvehicle.setState(WAITING_IN_AREA)
+        end
+        Sched -> VR : save(vehicle)
+        VR --> Sched : Vehicle
+
+        Sched -> QRR : save(QueueRecord)\n(queueType="WAITING_AREA")
+        QRR --> Sched : QueueRecord
+
+        Sched -> Sched : tryDispatch(mode, time)\n→ 内部调用 getAvailablePiles(mode)\n→ selectBestPile() / dispatchVehicleToPile()
+        Sched -> CPR : findByType(mode)
+        CPR --> Sched : List<ChargingPile>
+        Sched -> QRR : findByPileIdOrderByPositionAsc(pileId)
+        QRR --> Sched : List<QueueRecord>
+        alt 分配到充电桩
+            Sched -> VR : save(vehicle)\n(state = QUEUING_IN_PILE)
+            Sched -> QRR : save(QueueRecord)\n(queueType="PILE_QUEUE", pile=pile)
+            opt 排在队首
+                Sched -> Sched : startCharging(vehicle, pile, time)\n→ RechargeRecord(builder).build()
+            end
+        end
+
+        Sched --> API : Vehicle (含排队号/状态)
+    end
+end
+API --> User : 200 OK + JSON
+@enduml

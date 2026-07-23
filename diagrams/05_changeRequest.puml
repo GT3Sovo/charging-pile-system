@@ -1,0 +1,68 @@
+@startuml changeRequest
+title 顺序图 - changeRequest(vehicleId, newMode, newAmount)
+
+actor 用户 as User
+participant "边界层\nApiController" as API
+participant "控制层\nSimulationService" as Sim
+participant "控制层\nSchedulingEngine" as Sched
+participant "仓库层\nVehicleRepository" as VR
+participant "仓库层\nQueueRecordRepository" as QRR
+participant "仓库层\nRechargeRecordRepository" as RRR
+
+User -> API : POST /api/charge/change\n(ChangeRequestDto: vehicleId, mode, amount)
+API -> Sim : ensureInitialized()
+API -> Sim : lockMode()
+API -> Sched : changeRequest(vehicleId, newMode, newAmount, time)
+
+Sched -> VR : findById(vehicleId)
+VR --> Sched : Optional<Vehicle>
+
+alt state == FINISHED 或 CANCELLED
+    Sched --> API : IllegalStateException
+else 活跃状态 (WAITING_IN_AREA / QUEUING_IN_PILE / CHARGING)
+    Sched -> Sched : oldMode = vehicle.getChargeMode()
+
+    alt state == WAITING_IN_AREA (等候区)
+        alt newMode != null 且 newMode != oldMode (改变充电模式)
+            Sched -> QRR : deleteByVehicleId(vehicleId)
+            Sched -> Sched : reorderWaitingAreaQueue()
+
+            Sched -> Sched : generateNextQueueNum(newMode)\nvehicle.setChargeMode(newMode)
+            opt newAmount > 0
+                Sched -> RRR : findByVehicleId(vehicleId)
+                RRR --> Sched : List<RechargeRecord>
+                Sched -> Sched : 校验 newAmount >= 已充电量
+                Sched -> Sched : vehicle.setRequestedAmount(newAmount)
+            end
+            Sched -> VR : save(vehicle)
+
+            Sched -> QRR : save(QueueRecord)\n(queueType="WAITING_AREA", newQueueNum)
+            QRR --> Sched : QueueRecord
+
+            Sched -> Sched : tryDispatch(oldMode, time)
+            Sched -> Sched : tryDispatch(newMode, time)
+
+        else 仅修改度数 (同模式)
+            Sched -> RRR : findByVehicleId(vehicleId)
+            RRR --> Sched : List<RechargeRecord>
+            Sched -> Sched : 校验 newAmount >= 已充电量
+            Sched -> Sched : vehicle.setRequestedAmount(newAmount)
+            Sched -> VR : save(vehicle)
+            Sched -> Sched : tryDispatch(oldMode, time)
+        end
+
+    else state == QUEUING_IN_PILE 或 CHARGING (已在桩)
+        alt newMode != oldMode
+            Sched --> API : IllegalStateException "已分配后不能改模式"
+        else 仅修改度数
+            Sched -> RRR : findByVehicleId(vehicleId)
+            RRR --> Sched : 校验 newAmount >= 已充电量
+            Sched -> Sched : vehicle.setRequestedAmount(newAmount)
+            Sched -> VR : save(vehicle)
+        end
+    end
+
+    Sched --> API : Vehicle (更新后)
+end
+API --> User : 200 OK + JSON
+@enduml

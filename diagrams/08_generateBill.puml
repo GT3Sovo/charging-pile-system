@@ -1,0 +1,56 @@
+@startuml generateBill
+title 顺序图 - 充电完成时自动生成账单与详单 (stopChargingAndGenerateDetail)
+
+participant "控制层\nSchedulingEngine" as Sched
+participant "控制层\nBillingEngine" as BillEng
+participant "实体层\nRechargeRecord" as RR
+participant "实体层\nDetailList" as DL
+participant "实体层\nBill" as B
+participant "实体层\nChargingPile" as CP
+participant "仓库层\nRechargeRecordRepository" as RRR
+participant "仓库层\nDetailListRepository" as DLR
+participant "仓库层\nBillRepository" as BR
+participant "仓库层\nChargingPileRepository" as CPR
+
+note over Sched : 调用时机\n1. 充电完成 (finishChargingNoDispatch)\n2. 取消充电 (cancelOrEndCharge)\n3. 故障中断 (reportBreakdown)\n4. 关闭充电桩 (shutdownPile)
+
+Sched -> Sched : stopChargingAndGenerateDetail(vehicle, pile, time)
+
+Sched -> RRR : findByVehicleId(vehicleId)
+RRR --> Sched : List<RechargeRecord>
+Sched -> Sched : 找到 endTime == null 且 pileId 匹配的记录
+
+Sched -> Sched : record.setEndTime(time)
+Sched -> Sched : 计算 chargedAmount\n= durationSec * (pile.power / 3600.0)\n不超过 requestedAmount - 已充量
+
+Sched -> BillEng : calculate(record.startTime, record.endTime, chargedAmount)
+note over BillEng : 分时电价计算\n峰时 10:00-15:00/18:00-21:00 1.0元/度\n平时 07:00-10:00/15:00-18:00/21:00-23:00 0.7元/度\n谷时 23:00-07:00 0.4元/度\n服务费 0.8元/度
+BillEng --> Sched : BillingResult\n(peakAmount, regularAmount, offPeakAmount,\n peakChargeCost, regularChargeCost, offPeakChargeCost,\n totalChargeCost, totalServiceCost, totalCost)
+
+Sched -> Sched : record.setChargedAmount(...)\nrecord.setChargeCost(...)\nrecord.setServiceCost(...)\nrecord.setTotalCost(...)
+Sched -> RRR : save(record)
+
+Sched -> Sched : new DetailList\n detailNo = "DL-" + UUID\n createdAt = time\n pile / vehicle / chargedAmount\n chargeDuration = totalDurationSeconds\n startTime / endTime\n chargeCost / serviceCost / totalCost
+Sched -> DL : detail 对象
+Sched -> DLR : save(detail)
+DLR --> Sched : DetailList
+
+Sched -> Sched : pile.setChargeCount(pile.chargeCount + 1)\npile.setTotalChargeTime(...)\npile.setTotalChargeAmount(...)\npile.setTotalChargeCost(...)\npile.setTotalServiceCost(...)\npile.setTotalCost(...)
+Sched -> CPR : save(pile)
+
+Sched -> BR : findFirstByVehicleIdAndIsPaidFalse(vehicleId)
+BR --> Sched : Optional<Bill>
+
+alt 已有未支付账单
+    Sched -> Sched : bill.setChargedAmount(bill.chargedAmount + chargedAmount)\nbill.setChargeCost(... + totalChargeCost)\nbill.setServiceCost(... + totalServiceCost)\nbill.setTotalCost(... + totalCost)\nbill.setCreatedAt(time)
+else 无未支付账单 (新建)
+    Sched -> Sched : new Bill\n billNo = "B-" + UUID\n vehicle / stationName="智能调度充电站"\n chargedAmount / chargeCost / serviceCost\n parkingFee=0.0\n totalCost / isPaid=false
+end
+Sched -> BR : save(bill)
+BR --> Sched : Bill
+
+Sched -> Sched : detail.setBill(bill)
+Sched -> DLR : save(detail)
+
+Sched --> Sched : 完成 (DetailList 和 Bill 已持久化)
+@enduml

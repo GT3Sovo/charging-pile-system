@@ -1,0 +1,64 @@
+@startuml shutdownPile
+title 顺序图 - shutdownPile 管理员关闭充电桩
+
+actor "管理员" as Admin
+participant "边界层\nApiController" as API
+participant "控制层\nSimulationService" as Sim
+participant "控制层\nSchedulingEngine" as Sched
+participant "控制层\nBillingEngine" as BillEng
+participant "仓库层\nChargingPileRepository" as CPR
+participant "仓库层\nQueueRecordRepository" as QRR
+participant "仓库层\nVehicleRepository" as VR
+participant "仓库层\nRechargeRecordRepository" as RRR
+participant "仓库层\nDetailListRepository" as DLR
+participant "仓库层\nBillRepository" as BR
+
+Admin -> API : POST /api/pile/stop\n(pileId)
+API -> Sim : ensureInitialized()
+API -> Sim : lockMode()
+API -> Sched : shutdownPile(pileId, time)
+
+Sched -> CPR : findById(pileId)
+CPR --> Sched : Optional<ChargingPile>
+
+alt 桩状态 != RUNNING
+    Sched --> API : IllegalStateException "仅运行中桩可关闭"
+else 桩为 RUNNING
+    Sched -> Sched : pile.setState(OFFLINE)
+    Sched -> CPR : save(pile)
+
+    Sched -> QRR : findByPileIdOrderByPositionAsc(pileId)
+    QRR --> Sched : List<QueueRecord> (桩队列)
+
+    loop 每个桩队列中的车辆
+        Sched -> Sched : 读取 vehicle = qr.getVehicle()
+
+        alt vehicle.getState() == CHARGING (正在充电)
+            Sched -> Sched : stopChargingAndGenerateDetail(vehicle, pile, time)
+            Sched -> RRR : findByVehicleId(vehicleId)
+            RRR --> Sched : RechargeRecord (未结束)
+            Sched -> Sched : record.setEndTime(time)
+
+            Sched -> BillEng : calculate(startTime, endTime, chargedAmount)
+            BillEng --> Sched : BillingResult
+
+            Sched -> Sched : new DetailList(detailNo, ...)
+            Sched -> DLR : save(detail)
+            Sched -> Sched : new Bill / 累加已有 Bill
+            Sched -> BR : save(bill)
+        end
+
+        Sched -> QRR : delete(qr)
+        Sched -> Sched : returnVehicleToWaitingArea(vehicle, time)\n→ vehicle.setState(WAITING_IN_AREA)
+        Sched -> VR : save(vehicle)
+
+        Sched -> QRR : save(QueueRecord)\n(queueType="WAITING_AREA")
+    end
+
+    Sched -> Sched : reorderWaitingAreaQueue()
+    Sched -> Sched : tryDispatch(mode, time)\n(将等候区车辆调度到其他同类型桩)
+
+    Sched --> API : void
+end
+API --> Admin : 200 "SUCCESS"
+@enduml
